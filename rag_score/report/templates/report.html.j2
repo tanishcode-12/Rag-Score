@@ -93,7 +93,8 @@
         </td>
         <td>
           {% for name, value in row.scores.items() %}
-          <span class="metric-pill {{ score_class(value) }}" style="background: rgba(255,255,255,0.06);">
+          <span class="metric-pill {{ score_class(value) }}" style="background: rgba(255,255,255,0.06);"
+                {% if name in row.reasoning %}title="{{ row.reasoning[name] }}"{% endif %}>
             {{ name }}: {{ "%.2f"|format(value) }}
           </span>
           {% endfor %}

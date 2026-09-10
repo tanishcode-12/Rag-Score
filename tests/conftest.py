@@ -11,6 +11,7 @@ import pytest
 
 from rag_score.adapters.base import CallableGeneratorAdapter, CallableRetrieverAdapter
 from rag_score.core.types import EvalResult, RetrievedChunk, TestCase
+from rag_score.judges.base import JudgeVerdict, LLMJudge
 
 
 @pytest.fixture
@@ -96,3 +97,27 @@ def failing_retriever() -> CallableRetrieverAdapter:
         raise RuntimeError("simulated retriever failure")
 
     return CallableRetrieverAdapter(_fail)
+
+
+class FakeJudge(LLMJudge):
+    """A deterministic judge for testing generation metrics without any
+    network access or API key - always returns the same verdict,
+    formatted the way a real model actually responds (wrapped in a
+    markdown fence) so the full judge() parsing path gets exercised."""
+
+    def __init__(self, score: float = 0.8, reasoning: str = "Looks reasonable.") -> None:
+        self._score = score
+        self._reasoning = reasoning
+        self.call_count = 0
+
+    async def complete(self, system_prompt: str, user_prompt: str) -> str:
+        self.call_count += 1
+        import json
+
+        payload = json.dumps({"score": self._score, "reasoning": self._reasoning})
+        return f"```json\n{payload}\n```"
+
+
+@pytest.fixture
+def fake_judge() -> FakeJudge:
+    return FakeJudge()

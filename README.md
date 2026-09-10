@@ -1,5 +1,7 @@
 # rag-score
 
+[![Tests](https://github.com/tanishcode-12/Rag-Score/actions/workflows/test.yml/badge.svg)](https://github.com/tanishcode-12/Rag-Score/actions/workflows/test.yml)
+
 Know if your RAG pipeline actually works — in 3 lines of code, with zero framework lock-in.
 
 `rag-score` is a lightweight, framework-agnostic Python library for evaluating Retrieval-Augmented Generation pipelines. Bring your own retriever (LangChain, LlamaIndex, raw FAISS, an HTTP call — anything), get retrieval and generation quality metrics back.
