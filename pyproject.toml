@@ -33,8 +33,17 @@ openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.30"]
 report = ["jinja2>=3.0"]
 bi = ["pandas>=2.0"]
-all = ["pyyaml>=6.0", "openai>=1.0", "anthropic>=0.30", "jinja2>=3.0", "pandas>=2.0"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6"]
+langchain = ["langchain-core>=0.3.0"]
+llamaindex = ["llama-index-core>=0.11.0"]
+all = [
+  "pyyaml>=6.0", "openai>=1.0", "anthropic>=0.30", "jinja2>=3.0",
+  "pandas>=2.0", "langchain-core>=0.3.0", "llama-index-core>=0.11.0",
+]
+dev = [
+  "pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6", "jinja2>=3.0",
+  "pyyaml>=6.0", "pandas>=2.0", "openai>=1.0", "langchain-core>=0.3.0",
+  "llama-index-core>=0.11.0",
+]
 
 [project.scripts]
 rageval = "rag_score.cli:main"

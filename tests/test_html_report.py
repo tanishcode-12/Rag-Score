@@ -84,3 +84,36 @@ class TestGenerateHtmlReport:
         nested_path = tmp_path / "a" / "b" / "report.html"
         generate_html_report(nested_path, run, sample_test_cases, report)
         assert nested_path.exists()
+
+    async def test_chart_svg_present_with_scores(
+        self, tmp_path, sample_test_cases, fake_retriever, fake_generator
+    ):
+        config = RunConfig(run_id="r1")
+        report = await run_evaluation(
+            sample_test_cases, fake_retriever, fake_generator, [PrecisionAtK(k=3)], config
+        )
+        run = DimRun(run_id="r1", project_name="p", dataset_name="d")
+
+        output_path = tmp_path / "report.html"
+        generate_html_report(output_path, run, sample_test_cases, report)
+
+        html = output_path.read_text(encoding="utf-8")
+        assert "<svg" in html
+        assert "precision_at_3" in html
+
+    async def test_no_chart_section_when_no_scores(
+        self, tmp_path, sample_test_cases, failing_retriever, fake_generator
+    ):
+        # All results errored -> no scores -> chart should be skipped
+        # entirely rather than rendering an empty/broken SVG.
+        config = RunConfig(run_id="r1", continue_on_error=True)
+        report = await run_evaluation(
+            sample_test_cases, failing_retriever, fake_generator, [PrecisionAtK(k=3)], config
+        )
+        run = DimRun(run_id="r1", project_name="p", dataset_name="d")
+
+        output_path = tmp_path / "report.html"
+        generate_html_report(output_path, run, sample_test_cases, report)
+
+        html = output_path.read_text(encoding="utf-8")
+        assert "<svg" not in html

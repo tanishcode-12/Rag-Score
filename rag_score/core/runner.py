@@ -77,11 +77,19 @@ async def _score_result(
         # and look like a genuinely bad answer rather than a crash.
         return []
 
-    scores = await asyncio.gather(*(m.score(test_case, result) for m in metrics))
-    return [
-        MetricScore(evaluation_id=result.evaluation_id, metric_name=m.name, score_value=s)
-        for m, s in zip(metrics, scores)
-    ]
+    async def _score_one(m: Metric) -> MetricScore:
+        if hasattr(m, "score_with_reasoning"):
+            s, reasoning = await m.score_with_reasoning(test_case, result)
+        else:
+            s, reasoning = await m.score(test_case, result), None
+        return MetricScore(
+            evaluation_id=result.evaluation_id,
+            metric_name=m.name,
+            score_value=s,
+            judge_reasoning=reasoning,
+        )
+
+    return list(await asyncio.gather(*(_score_one(m) for m in metrics)))
 
 
 async def run_evaluation(

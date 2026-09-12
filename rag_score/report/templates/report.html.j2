@@ -70,6 +70,13 @@
     {% endfor %}
   </div>
 
+  {% if chart_svg %}
+  <h2>Average score by metric</h2>
+  <div class="card" style="overflow-x: auto;">
+    {{ chart_svg | safe }}
+  </div>
+  {% endif %}
+
   <h2>Per-question breakdown</h2>
   <table>
     <thead>

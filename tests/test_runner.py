@@ -70,3 +70,25 @@ class TestRunEvaluation:
         )
         assert all(r.retrieval_latency_ms is not None for r in report.results)
         assert all(r.generation_latency_ms is not None for r in report.results)
+
+    async def test_llm_judge_reasoning_flows_into_metric_score(
+        self, sample_test_cases, fake_retriever, fake_generator, fake_judge
+    ):
+        from rag_score.metrics.generation.faithfulness import Faithfulness
+
+        config = RunConfig(run_id="r1")
+        report = await run_evaluation(
+            sample_test_cases, fake_retriever, fake_generator,
+            [Faithfulness(judge=fake_judge)], config,
+        )
+        assert len(report.scores) == len(sample_test_cases)
+        assert all(s.judge_reasoning == "Looks reasonable." for s in report.scores)
+
+    async def test_pure_math_metric_has_no_reasoning(
+        self, sample_test_cases, fake_retriever, fake_generator
+    ):
+        config = RunConfig(run_id="r1")
+        report = await run_evaluation(
+            sample_test_cases, fake_retriever, fake_generator, [MRR()], config
+        )
+        assert all(s.judge_reasoning is None for s in report.scores)

@@ -34,8 +34,11 @@ def _build_rows(
 ) -> list[dict]:
     tc_by_id = {tc.test_case_id: tc for tc in test_cases}
     scores_by_eval: dict[str, dict[str, float]] = {}
+    reasoning_by_eval: dict[str, dict[str, str]] = {}
     for s in report.scores:
         scores_by_eval.setdefault(s.evaluation_id, {})[s.metric_name] = s.score_value
+        if s.judge_reasoning:
+            reasoning_by_eval.setdefault(s.evaluation_id, {})[s.metric_name] = s.judge_reasoning
 
     rows = []
     for result in report.results:
@@ -48,6 +51,7 @@ def _build_rows(
             {
                 "question": tc.question if tc else "(unknown question)",
                 "generated_answer": result.generated_answer,
+                "reasoning": reasoning_by_eval.get(result.evaluation_id, {}),
                 "error": result.error,
                 "scores": scores_by_eval.get(result.evaluation_id, {}),
                 "total_latency_ms": total_latency or "—",
@@ -63,6 +67,59 @@ def _summarize(report: RunReport) -> dict[str, float]:
     for s in report.scores:
         by_metric.setdefault(s.metric_name, []).append(s.score_value)
     return {name: statistics.mean(values) for name, values in by_metric.items()}
+
+
+# Chart is generated as inline SVG (not Chart.js/a CDN script) so the
+# report stays a genuinely self-contained file - no internet
+# connection needed to view it, which matters for CI artifacts and
+# air-gapped environments.
+_CHART_WIDTH = 640
+_BAR_HEIGHT = 28
+_BAR_GAP = 14
+_LABEL_WIDTH = 160
+_CHART_COLORS = {"good": "#3ecf8e", "mid": "#e8b339", "bad": "#f0546b"}
+
+
+def _bar_color(value: float) -> str:
+    if value >= 0.8:
+        return _CHART_COLORS["good"]
+    if value >= 0.5:
+        return _CHART_COLORS["mid"]
+    return _CHART_COLORS["bad"]
+
+
+def _build_score_chart_svg(summary: dict[str, float]) -> str:
+    """Render a horizontal bar chart of average score per metric as a
+    plain SVG string. Returns an empty string if there's nothing to
+    chart, so the template can skip the section cleanly."""
+    if not summary:
+        return ""
+
+    bar_area_width = _CHART_WIDTH - _LABEL_WIDTH - 60  # leave room for the value label
+    row_height = _BAR_HEIGHT + _BAR_GAP
+    height = row_height * len(summary)
+
+    bars = []
+    for i, (name, value) in enumerate(summary.items()):
+        y = i * row_height
+        bar_width = max(2, value * bar_area_width)  # min width so 0.0 bars are still visible
+        color = _bar_color(value)
+        bars.append(
+            f'<text x="{_LABEL_WIDTH - 10}" y="{y + _BAR_HEIGHT / 2 + 4}" '
+            f'text-anchor="end" font-size="12" fill="#8b90a0">{name}</text>'
+            f'<rect x="{_LABEL_WIDTH}" y="{y}" width="{bar_area_width}" height="{_BAR_HEIGHT}" '
+            f'rx="4" fill="#1e222c" />'
+            f'<rect x="{_LABEL_WIDTH}" y="{y}" width="{bar_width:.1f}" height="{_BAR_HEIGHT}" '
+            f'rx="4" fill="{color}" />'
+            f'<text x="{_LABEL_WIDTH + bar_area_width + 8}" y="{y + _BAR_HEIGHT / 2 + 4}" '
+            f'font-size="12" fill="#e6e8ee">{value:.3f}</text>'
+        )
+
+    svg_body = "".join(bars)
+    return (
+        f'<svg viewBox="0 0 {_CHART_WIDTH} {height}" width="100%" '
+        f'style="max-width: {_CHART_WIDTH}px;">{svg_body}</svg>'
+    )
 
 
 def generate_html_report(
@@ -86,12 +143,14 @@ def generate_html_report(
     template = env.get_template("report.html.j2")
 
     num_errors = sum(1 for r in report.results if r.error is not None)
+    summary = _summarize(report)
 
     html = template.render(
         run=run,
         num_results=len(report.results),
         num_errors=num_errors,
-        summary=_summarize(report),
+        summary=summary,
+        chart_svg=_build_score_chart_svg(summary),
         rows=_build_rows(report, test_cases),
     )
 

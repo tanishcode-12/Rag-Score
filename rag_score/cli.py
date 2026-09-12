@@ -37,7 +37,11 @@ from rag_score.core.dataset import load_dataset
 from rag_score.core.runner import RunConfig, run_evaluation
 from rag_score.core.types import DimRun
 from rag_score.export.sqlite_export import export_to_sqlite
+from rag_score.judges.base import LLMJudge
 from rag_score.metrics.base import Metric
+from rag_score.metrics.generation.answer_relevance import AnswerRelevance
+from rag_score.metrics.generation.context_precision import ContextPrecision
+from rag_score.metrics.generation.faithfulness import Faithfulness
 from rag_score.report.html_report import generate_html_report
 from rag_score.metrics.retrieval.mrr import MRR
 from rag_score.metrics.retrieval.ndcg import NDCG
@@ -113,6 +117,53 @@ def _resolve_generator(ref: str) -> GeneratorAdapter:
 
 
 # ---------------------------------------------------------------------------
+# Judge construction from config: {"provider": "openai"|"anthropic"|"local", "model": ...}
+# ---------------------------------------------------------------------------
+
+def _build_judge(judge_config: dict[str, Any] | None) -> LLMJudge | None:
+    if not judge_config:
+        return None
+
+    provider = judge_config.get("provider", "").strip().lower()
+    model = judge_config.get("model")
+    api_key = judge_config.get("api_key")  # falls back to provider's env var if omitted
+
+    if provider == "openai":
+        from rag_score.judges.openai_judge import OpenAIJudge
+
+        kwargs = {"api_key": api_key}
+        if model:
+            kwargs["model"] = model
+        return OpenAIJudge(**kwargs)
+
+    if provider == "anthropic":
+        from rag_score.judges.anthropic_judge import AnthropicJudge
+
+        kwargs = {"api_key": api_key}
+        if model:
+            kwargs["model"] = model
+        return AnthropicJudge(**kwargs)
+
+    if provider == "local":
+        from rag_score.judges.local_judge import LocalJudge
+
+        if not model:
+            raise click.ClickException(
+                "The 'local' judge provider requires a 'model' field, e.g. "
+                '"model": "llama3.1" (the model name as your local server knows it).'
+            )
+        kwargs = {"model": model}
+        base_url = judge_config.get("base_url")
+        if base_url:
+            kwargs["base_url"] = base_url
+        return LocalJudge(**kwargs)
+
+    raise click.ClickException(
+        f"Unknown judge provider '{provider}'. Available: openai, anthropic, local"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Metric name -> instance resolution, e.g. "precision_at_5" -> PrecisionAtK(k=5)
 # ---------------------------------------------------------------------------
 
@@ -122,11 +173,25 @@ _K_PREFIXES: dict[str, type[Metric]] = {
     "ndcg_at_": NDCG,
 }
 
+_JUDGE_METRICS: dict[str, type[Metric]] = {
+    "faithfulness": Faithfulness,
+    "answer_relevance": AnswerRelevance,
+    "context_precision": ContextPrecision,
+}
 
-def _build_metric(name: str) -> Metric:
+
+def _build_metric(name: str, judge: LLMJudge | None) -> Metric:
     name = name.strip().lower()
     if name == "mrr":
         return MRR()
+    if name in _JUDGE_METRICS:
+        if judge is None:
+            raise click.ClickException(
+                f"Metric '{name}' requires an LLM judge, but no 'judge' section was "
+                f"found in the config. Add e.g.:\n"
+                f'  judge: {{"provider": "openai", "model": "gpt-4o-mini"}}'
+            )
+        return _JUDGE_METRICS[name](judge=judge)
     for prefix, cls in _K_PREFIXES.items():
         if name.startswith(prefix):
             suffix = name[len(prefix):]
@@ -134,8 +199,8 @@ def _build_metric(name: str) -> Metric:
                 raise click.ClickException(f"Invalid metric '{name}' - expected e.g. '{prefix}5'")
             return cls(k=int(suffix))
     raise click.ClickException(
-        f"Unknown metric '{name}'. Available in Phase 1: "
-        "precision_at_<k>, recall_at_<k>, mrr, ndcg_at_<k>"
+        f"Unknown metric '{name}'. Available: precision_at_<k>, recall_at_<k>, mrr, "
+        f"ndcg_at_<k>, faithfulness, answer_relevance, context_precision"
     )
 
 
@@ -209,7 +274,8 @@ def run(config_path: str) -> None:
     test_cases = load_dataset(config["dataset"])
     retriever = _resolve_retriever(config["retriever"])
     generator = _resolve_generator(config["generator"])
-    metrics = [_build_metric(name) for name in config["metrics"]]
+    judge = _build_judge(config.get("judge"))
+    metrics = [_build_metric(name, judge) for name in config["metrics"]]
 
     run_config = RunConfig(
         run_id=f"run-{Path(config_path).stem}",
